@@ -2,7 +2,7 @@ import ahocorasick
 import os
 
 # 全局变量，指定敏感词库文件的路径
-keyword_path: str = os.getenv("KEYWORD_PATH", "./keyword.txt")
+keyword_path: str = os.getenv("KEYWORD_PATH", "./keywords.txt")
 
 class ACAutomaton:
     """基于 ahocorasick 自动机的敏感词过滤器"""
