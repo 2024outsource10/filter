@@ -2,22 +2,22 @@ from collections import defaultdict
 import re
 import os
 
+# 全局变量，指定敏感词库文件的路径
+keyword_path = r"E:\pythons\my__filter\keywords.txt"
 
 # 定义 NaiveFilter, BSFilter, DFAFilter
 
 class NaiveFilter:
     """基于关键词的简单消息过滤器"""
 
-    def __init__(self, keywords_path=None, repl="*"):
+    def __init__(self, repl="*"):
         """
         初始化过滤器:
-        - keywords_path: 敏感词库的文件路径，默认为 None。
         - repl: 用于替换敏感词的符号，默认为 '*'
         """
         self.keywords = set()  # 存储敏感词的集合
         self.repl = repl  # 替换符号
-        if keywords_path:  # 如果提供了敏感词库的路径，解析它
-            self.parse(keywords_path)
+        self.parse(keyword_path)  # 使用全局的 keyword_path 进行解析
 
     def parse(self, path):
         """从指定路径加载敏感词库并存储到 set 中"""
@@ -39,10 +39,9 @@ class NaiveFilter:
 class BSFilter:
     """基于倒排映射的敏感词过滤器"""
 
-    def __init__(self, keywords_path=None, repl="*"):
+    def __init__(self, repl="*"):
         """
         初始化过滤器:
-        - keywords_path: 敏感词库的文件路径。
         - repl: 替换敏感词的符号，默认为 '*'
         """
         self.keywords = []  # 存储所有敏感词的列表
@@ -50,8 +49,7 @@ class BSFilter:
         self.bsdict = defaultdict(set)  # 倒排索引，映射敏感词中的字符或单词到其在 self.keywords 中的索引
         self.pat_en = re.compile(r'^[0-9a-zA-Z]+$')  # 判断是否为英文短语的正则表达式
         self.repl = repl
-        if keywords_path:  # 如果提供了敏感词库路径，解析它
-            self.parse(keywords_path)
+        self.parse(keyword_path)  # 使用全局的 keyword_path 进行解析
 
     def add(self, keyword):
         """将关键词添加到过滤器"""
@@ -95,17 +93,15 @@ class BSFilter:
 class DFAFilter:
     """基于确定有限状态自动机 (DFA) 的敏感词过滤器"""
 
-    def __init__(self, keywords_path=None, repl="*"):
+    def __init__(self, repl="*"):
         """
         初始化过滤器:
-        - keywords_path: 敏感词库的文件路径。
         - repl: 替换敏感词的符号，默认为 '*'
         """
         self.keyword_chains = {}  # DFA 状态机的字典表示
         self.delimit = '\x00'  # 分隔符，用于表示词结尾
         self.repl = repl
-        if keywords_path:
-            self.parse(keywords_path)
+        self.parse(keyword_path)  # 使用全局的 keyword_path 进行解析
 
     def add(self, keyword):
         """将关键词添加到 DFA 结构中"""
@@ -162,28 +158,25 @@ class DFAFilter:
 
 
 # 创建过滤器的函数
-def create_filter(filter_type="DFA", keywords_path=None, repl="*"):
+def create_filter(filter_type="DFA", repl="*"):
     """根据过滤器类型创建并返回相应的过滤器实例"""
     if filter_type == "Naive":
-        return NaiveFilter(keywords_path, repl)
+        return NaiveFilter(repl)
     elif filter_type == "BS":
-        return BSFilter(keywords_path, repl)
+        return BSFilter(repl)
     elif filter_type == "DFA":
-        return DFAFilter(keywords_path, repl)
+        return DFAFilter(repl)
     else:
-        raise ValueError("Unknown filter type: choose from 'Naive', 'BS', or 'DFA'.")
+        raise ValueError("未知类型: choose from 'Naive', 'BS', or 'DFA'.")
 
 
 # 用于过滤文本的外部接口
-def filter_text(text, filter_type="DFA", keywords_path=None, repl="*"):
+def filter_text(text, filter_type="DFA", repl="*"):
     """调用适当的过滤器来过滤输入文本"""
-    if keywords_path is None:
-        keywords_path = os.path.join(os.getcwd(), "keywords.txt")  # 默认使用当前目录下的关键词文件
+    if not os.path.exists(keyword_path):
+        raise FileNotFoundError(f"敏感词库文件未找到: {keyword_path}")
 
-    if not os.path.exists(keywords_path):
-        raise FileNotFoundError(f"敏感词库文件未找到: {keywords_path}")
-
-    gfw = create_filter(filter_type, keywords_path, repl)  # 创建指定类型的过滤器
+    gfw = create_filter(filter_type, repl)  # 创建指定类型的过滤器
 
     return gfw.filter(text)  # 返回过滤后的文本和敏感词列表
 
