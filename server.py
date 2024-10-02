@@ -34,7 +34,7 @@ async def root():
     return {"message": "Hello World"}
 
 
-@app.post("/check_compliance")
+@app.post("/check")
 async def check_compliance(
     request: Request,  # 用于处理原始请求体
     payload: Optional[TextPayload] = Body(None),  # JSON 请求体
@@ -79,7 +79,7 @@ async def check_compliance(
         }
 
 
-@app.post("/filter_text")
+@app.post("/filter")
 async def filter_text(
     request: Request,  # 用于处理原始请求体
     payload: Optional[TextPayload] = Body(None),  # JSON 请求体
