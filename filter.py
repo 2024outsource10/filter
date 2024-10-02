@@ -1,107 +1,55 @@
-from collections import deque, defaultdict
+import ahocorasick
 import os
 
 # 全局变量，指定敏感词库文件的路径
 keyword_path: str = os.getenv("KEYWORD_PATH", "./keyword.txt")
 
-
 class ACAutomaton:
-    """基于 Aho-Corasick 自动机的敏感词过滤器"""
+    """基于 ahocorasick 自动机的敏感词过滤器"""
 
     def __init__(self, repl="*"):
         """
         初始化过滤器:
-        - repl: 替换敏感词的符号，默认为 '*'
+        - repl: 用于替换敏感词的符号，默认为 '*'
         """
         self.repl = repl  # 替换符号
-        self.goto = defaultdict(dict)  # 状态转移表
-        self.fail = defaultdict(int)  # 失败指针表
-        self.output = defaultdict(list)  # 输出表
-        self.state_count = 0  # 当前状态数量
-        self.parse(keyword_path)  # 使用全局的 keyword_path 进行解析
+        self.automaton = ahocorasick.Automaton()  # 初始化 Aho-Corasick 自动机
         self.build_automaton()  # 构建自动机
 
-    def parse(self, path):
-        """从文件中加载敏感词库并存储到自动机的转移表中"""
-        with open(path, 'r', encoding='utf-8') as file:
-            for keyword in file:
-                self.add_word(keyword.strip().lower())
-
-    def add_word(self, word):
-        """将一个敏感词添加到自动机的字典树结构中"""
-        current_state = 0
-        for char in word:
-            if char not in self.goto[current_state]:
-                self.state_count += 1
-                self.goto[current_state][char] = self.state_count
-            current_state = self.goto[current_state][char]
-        self.output[current_state].append(word)
-
     def build_automaton(self):
-        """构建失败指针，并完成自动机的构建"""
-        queue = deque()
+        """从文件中加载敏感词库并构建 Aho-Corasick 自动机"""
+        if not os.path.exists(keyword_path):
+            raise FileNotFoundError(f"敏感词库文件未找到: {keyword_path}")
 
-        # 初始化失败指针
-        for char, state in self.goto[0].items():
-            self.fail[state] = 0
-            queue.append(state)
+        # 从文件中加载敏感词库
+        with open(keyword_path, 'r', encoding='utf-8') as file:
+            for line in file:
+                keyword = line.strip().lower()
+                if keyword:  # 如果该行不是空的，则添加到自动机
+                    self.automaton.add_word(keyword, keyword)
 
-        # BFS 构建失败指针
-        while queue:
-            current_state = queue.popleft()
-            for char, next_state in self.goto[current_state].items():
-                # 计算失败指针
-                fail_state = self.fail[current_state]
-                while fail_state != 0 and char not in self.goto[fail_state]:
-                    fail_state = self.fail[fail_state]
-                if char in self.goto[fail_state]:
-                    self.fail[next_state] = self.goto[fail_state][char]
-                else:
-                    self.fail[next_state] = 0
-
-                # 合并输出
-                self.output[next_state].extend(self.output[self.fail[next_state]])
-
-                queue.append(next_state)
+        self.automaton.make_automaton()  # 构建自动机
 
     def filter(self, message):
         """使用 Aho-Corasick 自动机过滤消息中的敏感词，替换为指定字符"""
-        message_lower = message.lower()  # 原始消息的副本用于匹配
-        cleaned_message = re.sub(r'[^a-zA-Z\u4e00-\u9fff]', '', message_lower)  # 去除空格和特殊字符用于匹配
+        message_lower = message.lower()  # 将消息转换为小写以进行不区分大小写的匹配
+        result = list(message)  # 将消息转化为字符列表，以便进行替换
+        sensitive_words = []  # 存储找到的敏感词
 
-        current_state = 0  # 从初始状态开始
-        ret = list(message)  # 将原始消息转化为可修改的列表，保留空格和符号
-        sensitive_words = []  # 存储匹配到的敏感词
-        cleaned_index = 0  # 在去除空格后的字符串中遍历的索引
+        # 使用 Aho-Corasick 自动机匹配敏感词
+        for end_index, keyword in self.automaton.iter(message_lower):
+            start_index = end_index - len(keyword) + 1
+            sensitive_words.append(keyword)  # 记录找到的敏感词
+            result[start_index:end_index + 1] = [self.repl] * len(keyword)  # 替换为指定符号
 
-        # 原始消息的遍历，保留空格和符号
-        for i, char in enumerate(message_lower):
-            if re.match(r'[^a-zA-Z\u4e00-\u9fff]', char):
-                # 如果字符是空格或特殊字符，跳过匹配，直接跳过
-                continue
+        return ''.join(result), sensitive_words  # 返回过滤后的文本和命中的敏感词
 
-            # Aho-Corasick 自动机的状态转移
-            while current_state != 0 and cleaned_message[cleaned_index] not in self.goto[current_state]:
-                current_state = self.fail[current_state]
 
-            if cleaned_message[cleaned_index] in self.goto[current_state]:
-                current_state = self.goto[current_state][cleaned_message[cleaned_index]]
-            else:
-                current_state = 0
+# 其他函数保持不变
+from collections import defaultdict
+import re
 
-            cleaned_index += 1  # 移动到下一个非空字符
-
-            # 如果有敏感词输出
-            if self.output[current_state]:
-                for word in self.output[current_state]:
-                    sensitive_words.append(word)
-                    # 计算敏感词在原始消息中的位置
-                    start = i - len(word) + 1
-                    ret[start:i + 1] = self.repl * len(word)  # 替换敏感词为指定符号
-
-        return ''.join(ret), sensitive_words  # 返回过滤后的文本和敏感词列表
 # 创建过滤器的函数
-
 def create_filter(filter_type="AC", repl="*"):
     """根据过滤器类型创建并返回相应的过滤器实例"""
     if filter_type == "Naive":
