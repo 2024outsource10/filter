@@ -110,17 +110,10 @@ class DFAFilter:
             return
         level = self.keyword_chains  # 指向状态机的当前层级
         for i, char in enumerate(keyword):
-            if char in level:
-                level = level[char]  # 如果字符已存在，进入下一层
-            else:
-                for j in range(i, len(keyword)):  # 构造剩余的字符链
-                    level[keyword[j]] = {}
-                    last_level, last_char = level, keyword[j]
-                    level = level[keyword[j]]
-                last_level[last_char] = {self.delimit: 0}  # 词的结尾标志
-                break
-        if i == len(keyword) - 1:
-            level[self.delimit] = 0  # 词的结尾标志
+            if char not in level:
+                level[char] = {}  # 如果字符不存在，则创建新节点
+            level = level[char]  # 进入下一个层级
+        level[self.delimit] = 0  # 词的结尾标志
 
     def parse(self, path):
         """从文件中读取关键词并构造 DFA"""
@@ -137,22 +130,23 @@ class DFAFilter:
         while start < len(message):
             level = self.keyword_chains  # 从状态机的初始状态开始
             step_ins = 0  # 记录当前匹配的长度
-            for char in message[start:]:
+            for i, char in enumerate(message[start:], start=start):
                 if char in level:
                     step_ins += 1
-                    if self.delimit not in level[char]:
-                        level = level[char]  # 继续匹配下一个字符
-                    else:
+                    level = level[char]  # 继续匹配下一个字符
+                    if self.delimit in level:  # 匹配到词的结尾
                         sensitive_words.append(message[start:start + step_ins])  # 记录匹配到的敏感词
                         ret.append(self.repl * step_ins)  # 用替换符号替换敏感词
-                        start += step_ins - 1  # 更新起始位置
+                        start = i + 1  # 更新起始位置
                         break
                 else:
                     ret.append(message[start])  # 非敏感字符，直接保留
+                    start += 1
                     break
             else:
+                # 没有匹配到敏感词时，添加当前字符
                 ret.append(message[start])
-            start += 1
+                start += 1
 
         return ''.join(ret), sensitive_words  # 返回过滤后的消息和敏感词列表
 
@@ -184,8 +178,11 @@ def filter_text(text, filter_type="DFA", repl="*"):
 # 主逻辑部分
 def collect_sensitive_words_and_filter(text, filter_type="DFA", repl="*"):
     """收集触发的敏感词并过滤消息"""
+    print(f"开始过滤，输入文本: {text}")  # 调试语句
     try:
         filtered_text, sensitive_words = filter_text(text, filter_type=filter_type, repl=repl)
+        print(f"过滤后的文本: {filtered_text}")  # 调试语句
+        print(f"命中的敏感词: {sensitive_words}")  # 调试语句
         return sensitive_words, filtered_text
     except FileNotFoundError as e:
         print(f"敏感词过滤失败: {e}")
