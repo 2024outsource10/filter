@@ -3,7 +3,7 @@ import re
 import os
 
 # 全局变量，指定敏感词库文件的路径
-keyword_path = r"E:\pythons\my__filter\keywords.txt"
+keyword_path:str = os.getenv("KEYWORD_PATH", "./keyword.txt")
 
 # 定义 NaiveFilter, BSFilter, DFAFilter
 
