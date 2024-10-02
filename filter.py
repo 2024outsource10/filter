@@ -2,54 +2,43 @@ from collections import defaultdict
 import re
 import os
 
+# 定义 NaiveFilter, BSFilter, DFAFilter
 
 class NaiveFilter:
-    """
-    基于关键词的简单消息过滤器
-
-    非常简单的过滤器实现，直接替换关键词。
-    """
-
+    """基于关键词的简单消息过滤器"""
     def __init__(self, keywords_path=None, repl="*"):
-        """初始化过滤器，支持从指定路径加载敏感词库"""
         self.keywords = set()
         self.repl = repl
         if keywords_path:
             self.parse(keywords_path)
 
     def parse(self, path):
-        """从文件中读取关键词，并加入到过滤器中"""
         with open(path, 'r', encoding='utf-8') as file:
             for keyword in file:
                 self.keywords.add(keyword.strip().lower())
 
     def filter(self, message):
-        """过滤消息中的敏感词，将其替换为指定字符"""
         message = message.lower()
+        sensitive_words = []
         for kw in self.keywords:
-            message = message.replace(kw, self.repl)
-        return message
+            if kw in message:
+                sensitive_words.append(kw)
+                message = message.replace(kw, self.repl)
+        return message, sensitive_words
 
 
 class BSFilter:
-    """
-    基于倒排映射的敏感词过滤器
-
-    通过倒排映射减少不必要的替换操作，提升过滤效率。
-    """
-
+    """基于倒排映射的敏感词过滤器"""
     def __init__(self, keywords_path=None, repl="*"):
-        """初始化过滤器，支持从指定路径加载敏感词库"""
         self.keywords = []
         self.kwsets = set()
         self.bsdict = defaultdict(set)
-        self.pat_en = re.compile(r'^[0-9a-zA-Z]+$')  # 判断是否为英文短语
+        self.pat_en = re.compile(r'^[0-9a-zA-Z]+$')
         self.repl = repl
         if keywords_path:
             self.parse(keywords_path)
 
     def add(self, keyword):
-        """添加单个关键词到过滤器"""
         keyword = keyword.lower()
         if keyword not in self.kwsets:
             self.keywords.append(keyword)
@@ -63,34 +52,31 @@ class BSFilter:
                         self.bsdict[char].add(index)
 
     def parse(self, path):
-        """从文件中读取关键词，并加入到过滤器中"""
         with open(path, 'r', encoding='utf-8') as f:
             for keyword in f:
                 self.add(keyword.strip())
 
     def filter(self, message):
-        """过滤消息中的敏感词，将其替换为指定字符"""
         message = message.lower()
+        sensitive_words = []
         for word in message.split():
-            if self.pat_en.search(word):  # 如果是英文短语
+            if self.pat_en.search(word):
                 for index in self.bsdict[word]:
-                    message = message.replace(self.keywords[index], self.repl)
-            else:  # 非英文单词按字符处理
+                    if self.keywords[index] in message:
+                        sensitive_words.append(self.keywords[index])
+                        message = message.replace(self.keywords[index], self.repl)
+            else:
                 for char in word:
                     for index in self.bsdict[char]:
-                        message = message.replace(self.keywords[index], self.repl)
-        return message
+                        if self.keywords[index] in message:
+                            sensitive_words.append(self.keywords[index])
+                            message = message.replace(self.keywords[index], self.repl)
+        return message, sensitive_words
 
 
 class DFAFilter:
-    """
-    基于确定有限状态自动机（DFA）的敏感词过滤器
-
-    使用 DFA 保证性能稳定，适合处理大规模文本过滤。
-    """
-
+    """基于确定有限状态自动机的敏感词过滤器"""
     def __init__(self, keywords_path=None, repl="*"):
-        """初始化过滤器，支持从指定路径加载敏感词库"""
         self.keyword_chains = {}
         self.delimit = '\x00'
         self.repl = repl
@@ -98,7 +84,6 @@ class DFAFilter:
             self.parse(keywords_path)
 
     def add(self, keyword):
-        """添加单个关键词到 DFA 状态机中"""
         keyword = keyword.lower().strip()
         if not keyword:
             return
@@ -117,15 +102,14 @@ class DFAFilter:
             level[self.delimit] = 0
 
     def parse(self, path):
-        """从文件中读取关键词，并加入到 DFA 中"""
         with open(path, 'r', encoding='utf-8') as f:
             for keyword in f:
                 self.add(keyword.strip())
 
     def filter(self, message):
-        """使用 DFA 过滤消息中的敏感词"""
         message = message.lower()
         ret = []
+        sensitive_words = []
         start = 0
         while start < len(message):
             level = self.keyword_chains
@@ -136,6 +120,7 @@ class DFAFilter:
                     if self.delimit not in level[char]:
                         level = level[char]
                     else:
+                        sensitive_words.append(message[start:start + step_ins])
                         ret.append(self.repl * step_ins)
                         start += step_ins - 1
                         break
@@ -146,43 +131,11 @@ class DFAFilter:
                 ret.append(message[start])
             start += 1
 
-        return ''.join(ret)
-
-    def is_contain_sensi_key_word(self, message):
-        """检查消息中是否包含敏感词"""
-        repl = '_-__-'
-        filtered_message = self.filter(message)
-        return repl in filtered_message
+        return ''.join(ret), sensitive_words
 
 
-# 整合并创建过滤器函数
-def filter_text(text, filter_type="DFA", keywords_path=None, repl="*"):
-    """
-    对外接口函数，用于过滤文本中的敏感词
-    :param text: 待过滤的文本字符串
-    :param filter_type: 过滤器类型（Naive, BS, DFA）
-    :param keywords_path: 敏感词库文件的路径（可选，如果未提供则使用默认路径）
-    :param repl: 敏感词的替换字符
-    :return: 过滤后的文本
-    """
-    # 如果未指定关键词库路径，使用默认的 "keywords.txt" 路径
-    if keywords_path is None:
-        keywords_path = os.path.join(os.getcwd(), "keywords.txt")
-
-    # 确保关键词文件存在，否则抛出异常
-    if not os.path.exists(keywords_path):
-        raise FileNotFoundError(f"敏感词库文件未找到: {keywords_path}")
-
-    # 创建指定类型的过滤器
-    gfw = create_filter(filter_type, keywords_path, repl)
-
-    # 对输入的文本进行过滤
-    return gfw.filter(text)
-
-
-# 示例的过滤器创建函数，假设已定义在上文
+# 创建过滤器的函数
 def create_filter(filter_type="DFA", keywords_path=None, repl="*"):
-    """根据类型创建过滤器，并加载敏感词库"""
     if filter_type == "Naive":
         return NaiveFilter(keywords_path, repl)
     elif filter_type == "BS":
@@ -193,14 +146,57 @@ def create_filter(filter_type="DFA", keywords_path=None, repl="*"):
         raise ValueError("Unknown filter type: choose from 'Naive', 'BS', or 'DFA'.")
 
 
-# 假设 NaiveFilter、BSFilter、DFAFilter 类也已定义在上文
-# 简单测试
-if __name__ == "__main__":
-    test_text = "一些示例文本"
+# 用于过滤文本的外部接口
+def filter_text(text, filter_type="DFA", keywords_path=None, repl="*"):
+    if keywords_path is None:
+        keywords_path = os.path.join(os.getcwd(), "keywords.txt")
 
-    # 测试调用，使用默认路径
+    if not os.path.exists(keywords_path):
+        raise FileNotFoundError(f"敏感词库文件未找到: {keywords_path}")
+
+    gfw = create_filter(filter_type, keywords_path, repl)
+
+    return gfw.filter(text)
+
+
+# 主逻辑部分
+def collect_sensitive_words_and_filter(text, filter_type="DFA", repl="*"):
     try:
-        filtered_text = filter_text(test_text, filter_type="DFA", repl="*")
-        print("过滤后的文本：", filtered_text)
+        filtered_text, sensitive_words = filter_text(text, filter_type=filter_type, repl=repl)
+        return sensitive_words, filtered_text
     except FileNotFoundError as e:
-        print(e)
+        print(f"敏感词过滤失败: {e}")
+        return [], text
+
+
+def process_document(input_text):
+    processed_text = ""
+    pages = input_text.split('\n\n')  # 模拟简单的页拆分逻辑
+    all_sensitive_words = []
+
+    for page in pages:
+        sensitive_words, filtered_page = collect_sensitive_words_and_filter(page)
+        all_sensitive_words.extend(sensitive_words)
+        processed_text += filtered_page + '\n'
+
+    return all_sensitive_words, processed_text
+
+
+# main 函数用于测试
+def main():
+    input_text = """
+    Page1: This is a test document. It contains some sensitive words.
+    Page2: Another page with content that may trigger the filter.
+    SensitiveWord is on this page too.
+    """
+
+    triggered_words, cleaned_text = process_document(input_text)
+
+    print("触发的敏感词:")
+    print(triggered_words)
+    print("\n清理后的文档:")
+    print(cleaned_text)
+
+
+if __name__ == '__main__':
+    main()
