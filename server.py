@@ -1,5 +1,6 @@
 import os
 import tempfile
+import json
 from fastapi import FastAPI, UploadFile, File, Response, HTTPException, Body, Request
 from typing import Optional
 from pydantic import BaseModel
@@ -109,11 +110,26 @@ async def filter_text(
     # 调用 collect_sensitive_words_and_filter 函数，进行敏感词过滤并替换
     _, filtered_text = collect_sensitive_words_and_filter(text_to_check)
 
+    def parse_json_to_dict(json_string):
+        """
+        解析 JSON 字符串为字典。
+
+        参数:
+        json_string (str): JSON 格式的字符串
+
+        返回:
+        dict: 解析后的字典
+        """
+        try:
+            # 使用 json.loads 解析 JSON 字符串
+            parsed_dict = json.loads(json_string)
+            return parsed_dict
+        except json.JSONDecodeError as e:
+            print(f"Error parsing JSON: {e}")
+            return None
+
     # 返回过滤后的文本
-    return {
-        "message": "文本已处理",
-        "filtered_text": filtered_text  # 返回过滤后的文本
-    }
+    return parse_json_to_dict(filtered_text)
 
 if __name__ == "__main__":
     import uvicorn
